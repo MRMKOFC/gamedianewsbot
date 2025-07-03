@@ -29,7 +29,6 @@ jobs:
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
         run: python gamerant_bot.py
 
-      # OPTIONAL: Save posted.json back to repo (if you add PAT)
       - name: Commit posted.json
         if: always()
         run: |
