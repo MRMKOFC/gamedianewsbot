@@ -1,0 +1,2 @@
+# gamedianewsbot-
+Gaming news 
