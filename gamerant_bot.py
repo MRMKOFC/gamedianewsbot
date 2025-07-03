@@ -10,6 +10,7 @@ import html
 import json
 import os
 from datetime import datetime
+from pytz import timezone
 from PIL import Image
 
 # Setup logging
@@ -54,12 +55,15 @@ def escape_html(text):
 
 
 def is_today(date_str):
-    """Check if date_str matches today"""
+    """Check if date_str matches today in IST timezone"""
     try:
+        ist = timezone("Asia/Kolkata")
         post_date = datetime.strptime(date_str, "%b %d, %Y")
-        return post_date.date() == datetime.utcnow().date()
-    except Exception:
-        return False
+        today_ist = datetime.now(ist).date()
+        return post_date.date() == today_ist
+    except Exception as e:
+        logger.warning(f"Date parse failed: {e} -- Assuming recent")
+        return True  # Assume recent if no date
 
 
 async def send_to_telegram(title, summary, art_data=None):
