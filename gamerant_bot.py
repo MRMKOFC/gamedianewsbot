@@ -9,6 +9,7 @@ import time
 import html
 import json
 import os
+from datetime import datetime
 from PIL import Image
 
 # Setup logging
@@ -18,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger()
 
-# Telegram bot setup (loaded from GitHub Actions secrets)
+# Telegram bot setup (from GitHub Secrets)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 POST_WITHOUT_IMAGE = True
@@ -52,6 +53,15 @@ def escape_html(text):
     return html.escape(text) if text else text
 
 
+def is_today(date_str):
+    """Check if date_str matches today"""
+    try:
+        post_date = datetime.strptime(date_str, "%b %d, %Y")
+        return post_date.date() == datetime.utcnow().date()
+    except Exception:
+        return False
+
+
 async def send_to_telegram(title, summary, art_data=None):
     title = escape_html(title)
     summary = escape_html(summary)
@@ -69,11 +79,9 @@ async def send_to_telegram(title, summary, art_data=None):
             # Open news image (background)
             art_img_bg = Image.open(art_data).convert("RGBA")
 
-            # Resize the news image to fit
+            # Resize and combine
             final_size = banner_fg.size
             base_image = art_img_bg.resize(final_size, Image.LANCZOS)
-
-            # Combine background and banner
             base_image.paste(banner_fg, (0, 0), banner_fg)
 
             buf = BytesIO()
@@ -81,7 +89,7 @@ async def send_to_telegram(title, summary, art_data=None):
             buf.seek(0)
             photo_payload = buf
         except Exception as e:
-            logger.error(f"Could not create composite image for '{title}': {e}")
+            logger.error(f"Image processing failed for '{title}': {e}")
             photo_payload = None
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -100,7 +108,7 @@ async def send_to_telegram(title, summary, art_data=None):
                     parse_mode="HTML"
                 )
             else:
-                logger.warning(f"Skipping post for '{title}' as image is missing.")
+                logger.warning(f"Skipping post for '{title}' as image missing.")
                 return
 
             logger.info(f"Posted: {title}")
@@ -108,10 +116,10 @@ async def send_to_telegram(title, summary, art_data=None):
         except telegram.error.TimedOut:
             logger.warning(f"Timeout on attempt {attempt} for {title}")
         except telegram.error.BadRequest as e:
-            logger.error(f"BadRequest for {title}: {e}")
+            logger.error(f"BadRequest for '{title}': {e}")
             return
         except Exception as e:
-            logger.error(f"Error posting {title}: {e}")
+            logger.error(f"Error posting '{title}': {e}")
 
         if attempt < MAX_RETRIES:
             await asyncio.sleep(RETRY_DELAY)
@@ -124,7 +132,7 @@ async def scrape_gamerant():
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     posted_titles = load_posted()
 
-    # Retry loop for page fetch
+    # Fetch page with retries
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             resp = requests.get(url, headers=headers, timeout=10)
@@ -134,15 +142,13 @@ async def scrape_gamerant():
         except Exception as e:
             logger.warning(f"Fetch attempt {attempt} failed: {e}")
             if attempt == MAX_RETRIES:
-                logger.error("Could not fetch GameRant after retries.")
+                logger.error("Failed to fetch GameRant after retries.")
                 return
             time.sleep(RETRY_DELAY)
 
     articles = soup.select("div.display-card.article")[:20]
     if not articles:
-        logger.warning("No articles found; dumping HTML")
-        with open("gamerant.html", "w", encoding="utf-8") as f:
-            f.write(soup.prettify())
+        logger.warning("No articles found.")
         return
 
     for art in articles:
@@ -150,6 +156,14 @@ async def scrape_gamerant():
         title = title_el.text.strip() if title_el else None
         if not title or title in posted_titles:
             continue  # Skip duplicates
+
+        # Try to get publication date
+        date_el = art.select_one("span.published, time, .date")
+        date_str = date_el.text.strip() if date_el else None
+
+        if date_str and not is_today(date_str):
+            logger.info(f"Skipping '{title}' (not today)")
+            continue
 
         sum_el = art.select_one("p.synopsis, p, [class*='excerpt']")
         summary = (sum_el.text.strip()[:150] + "...") if sum_el else "No summary available"
@@ -165,7 +179,7 @@ async def scrape_gamerant():
                 ir.raise_for_status()
                 image_data = BytesIO(ir.content)
             except Exception as e:
-                logger.error(f"Error downloading image for '{title}': {e}")
+                logger.error(f"Image download failed for '{title}': {e}")
 
         await send_to_telegram(
             title,
