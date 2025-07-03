@@ -2,41 +2,42 @@ name: Gamerant News Bot
 
 on:
   schedule:
-    - cron: "0 */2 * * *" #  Runs every 2 hours
-  workflow_dispatch:      # Allow manual runs
+    - cron: "0 */2 * * *" # ⏰ Runs every 2 hours
+  workflow_dispatch:      # 📦 Allow manual runs
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
 
     steps:
-      - name:  Checkout repository
+      - name: 📥 Checkout repository with PAT
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
 
-      - name:  Set up Python
+      - name: 🐍 Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run the bot
+      - name: 🚀 Run the bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
         run: python gamerant_bot.py
 
-      - name:  Commit posted.json
+      - name: 💾 Commit posted.json
         if: always()
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git
           git add posted.json
           git commit -m "Update posted.json [skip ci]" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref_name }}
+          git push
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
